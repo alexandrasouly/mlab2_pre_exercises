@@ -85,8 +85,15 @@ def temperatures_differences(temps: t.Tensor) -> t.Tensor:
     temps: as above
     """
     assert len(temps) % 7 == 0
-    averages = reduce(temps, '(w d) -> w ', 'mean', d=7)
-    return temps - repeat(averages, 'a -> (a 7)')
+
+    # slower answer using repeat:
+    # averages = reduce(temps, '(w d) -> w ', 'mean', d=7)
+    # return temps - repeat(averages, 'a -> (a 7)')
+
+    # better answer using broadcasting
+    averages = reduce(temps, '(w d) -> w 1', 'mean', d=7)
+    difference = rearrange(temps, '(w d) -> w d', d=7) - averages
+    return rearrange(difference, 'w d -> (w d)')
 
 
 expected = t.tensor(
@@ -127,9 +134,17 @@ def temperatures_normalized(temps: t.Tensor) -> t.Tensor:
 
     Pass torch.std to reduce.
     """
-    averages = reduce(temps, '(w d) -> w ', 'mean', d=7)
-    weekly_std = reduce(temps, '(w d) -> w ', t.std, d=7)
-    return (temps - repeat(averages, 'a -> (a 7)')) / repeat(weekly_std, 'a -> (a 7)')
+    # slower answer using repeat
+    # averages = reduce(temps, '(w d) -> w ', 'mean', d=7)
+    # weekly_std = reduce(temps, '(w d) -> w ', t.std, d=7)
+    # return (temps - repeat(averages, 'a -> (a 7)')) / repeat(weekly_std, 'a -> (a 7)')
+
+    # faster answer using broadcasting
+    averages = reduce(temps, '(w d) -> w 1', 'mean', d=7)
+    weekly_std = reduce(temps, '(w d) -> w 1', t.std, d=7)
+    rearranged_temps = rearrange(temps, '(w d) -> w d', d=7)
+    rearranged_answer = (rearranged_temps - averages) / weekly_std
+    return rearrange(rearranged_answer, 'w d -> (w d)')
 
 
 expected = t.tensor(
@@ -229,7 +244,7 @@ def sample_distribution(probs: t.Tensor, n: int) -> t.Tensor:
     """
     assert abs(probs.sum() - 1.0) < 0.001
     assert (probs >= 0).all()
-    cumsums = t.cumsum(probs, 0)[None, :]  # shape is (1:k)
+    cumsums = rearrange(t.cumsum(probs, 0), 'k->1 k')  # shape is (1:k)
     randoms = t.rand((n, 1))  # shape is (n, 1)
     one_hots = t.tensor(randoms >= cumsums, dtype=int)  # shape is (n,k)
 
@@ -371,7 +386,7 @@ def batched_logsumexp(matrix: t.Tensor) -> t.Tensor:
     # get sum of exps
     sum_of_exps = t.sum(exponentials, dim=1, keepdim=True)  # shape (b,1)
     # take logs and add a
-    answer = (a+t.log(sum_of_exps)).squeeze()
+    answer = rearrange(a+t.log(sum_of_exps), 'b 1 -> b')
     return(answer)
 
 
